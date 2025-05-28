@@ -150,14 +150,30 @@ class PredictAssert(Module, Parameter):
 
         adapter = settings.adapter or ChatAdapter()
 
-        if self._should_stream():
-            with settings.context(caller_predict=self):
-                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
-        else:
-            with settings.context(send_stream=None):
-                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        def _call_adapter():
+            if self._should_stream():
+                with settings.context(caller_predict=self):
+                    return adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+            else:
+                with settings.context(send_stream=None):
+                    return adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        
+        max_attempts = 5
+        completions = []
+        completions_with_scores = []
 
-        return self._forward_postprocess(completions, signature, **kwargs)
+        for _ in range(1, max_attempts + 1):
+            one_completion = _call_adapter()
+            score = self.assertion_metric(one_completion[0])
+            completions.extend(one_completion)
+            completions_with_scores.append((one_completion, score))
+            if score == 1:
+                break
+
+            #TODO: try generating multiple completions at once rather than doing it one at a time
+
+
+        return self._forward_postprocess(completions, signature, **kwargs), completions_with_scores
 
     async def aforward(self, **kwargs):
         lm, config, signature, demos, kwargs = self._forward_preprocess(**kwargs)
