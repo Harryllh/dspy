@@ -9,7 +9,7 @@ from nltk.tokenize import sent_tokenize
 from dspy.datasets import HotPotQA
 from typing import Callable, List, Tuple, Any
 import os
-os.environ['OPENAI_API_KEY'] = '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'
+
 
 # lm = dspy.LM('openai/gpt-4o')
 lm = dspy.LM("gpt-4o-mini")
