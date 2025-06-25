@@ -26,6 +26,7 @@ class ChainOfThought(Module):
             **config: The configuration for the module.
         """
         super().__init__()
+        self.raw_signature = signature
         signature = ensure_signature(signature)
         prefix = "Reasoning: Let's think step by step in order to"
         desc = "${reasoning}"
