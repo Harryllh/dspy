@@ -8,6 +8,7 @@ nltk.download('punkt')
 from nltk.tokenize import sent_tokenize
 from dspy.datasets import HotPotQA
 from typing import Callable, List, Tuple, Any
+from dspy.adapters.chat_adapter import ChatAdapter
 import os
 
 
@@ -138,6 +139,7 @@ class CheckedChain:
         self.base_prog = base_prog
         self.assertions = assertions or []
         self.max_retries = max_retries
+        self.adapter = ChatAdapter()
 
     def add_assertion(
         self,
@@ -156,13 +158,13 @@ class CheckedChain:
         best_scores: List[int] = []
         best_total = -1
 
-        # New: full history
-        all_preds: List[Any] = []
-        all_scores_list: List[List[int]] = []
-        all_totals: List[int] = []
-
         original_sig = self.base_prog.raw_signature
         retry_prompts: List[str] = []
+
+        
+        
+
+        data = []
 
         for attempt in range(self.max_retries + 1):
             if attempt == 0:
@@ -188,10 +190,31 @@ class CheckedChain:
 
             total = sum(scores)
 
+
+            inp_messages = self.adapter.format(
+                                signature=self.base_prog.predictors()[0].signature,
+                                inputs=kwargs,
+                                demos=[] # TODO: Add support for demos
+                            )
+            all_messages = self.adapter.format_finetune_data(
+                                signature=self.base_prog.predictors()[0].signature,
+                                inputs=kwargs,
+                                outputs=pred,
+                                demos=[] # TODO: Add support for demos
+                            )['messages']
+            data.append({
+                "messages": inp_messages,
+                "completion": {
+                    "role": all_messages[-1]["role"],
+                    "content": all_messages[-1]["content"],
+                },
+                "reward": float(total),
+            })
+
             # record in history
-            all_preds.append(pred)
-            all_scores_list.append(scores)
-            all_totals.append(total)
+            # all_preds.append(pred)
+            # all_scores_list.append(scores)
+            # all_totals.append(total)
 
             # update best
             if total > best_total:
@@ -200,7 +223,7 @@ class CheckedChain:
                 best_pred = pred
 
         # return best + full history
-        return best_pred, all_preds, all_scores_list, all_totals
+        return best_pred, data
 
 
 class GenerateSearchQuery(dspy.Signature):
@@ -237,7 +260,8 @@ class LongFormQAWithAssertions(dspy.Module):
         
         with dspy.context(trace=[]):
             pred = self.assertion(context=context, question=question)
-            best_pred, all_preds, all_scores_list, all_totals = dspy.settings.trace.copy()
+            best_pred, data = pred
+            # dspy.settings.trace.copy()
             import pdb; pdb.set_trace()
 
         return best_pred
