@@ -4,33 +4,20 @@ import dspy.predict
 from typing import Literal
 import re
 import nltk
-nltk.download('punkt')
+# nltk.download('punkt')
+# nltk.download('punkt_tab')
 from nltk.tokenize import sent_tokenize
 from dspy.datasets import HotPotQA
 from typing import Callable, List, Tuple, Any
 from dspy.adapters.chat_adapter import ChatAdapter
 import os
 from openai import OpenAI
-
+from dspy.dsp.utils import deduplicate
 import dspy
 from dspy.clients.lm_local_arbor import ArborProvider
-
 from assertion_chain import AssertionChain
+from checkpoint import initialize_grpo, run_grpo_step, checkpoint, terminate_grpo
 
-port = 7453
-local_lm_name = "Qwen/Qwen3-1.7B"
-local_lm = dspy.LM(
-    model=f"openai/arbor:{local_lm_name}",
-    provider=ArborProvider(),
-    temperature=0.7,
-    api_base=f"http://localhost:{port}/v1/",
-    api_key="arbor",
-    cache=False
-)
-
-dspy.configure(lm=local_lm)
-
-dspy.settings.configure(rm=dspy.ColBERTv2(url='http://20.102.90.50:2017/wiki17_abstracts'))
 
 def correct_citation_format(paragraph):
     modified_sentences = []
@@ -60,7 +47,8 @@ def assert_citations(pred, **kwargs):
     if has_citations(paragraph) and correct_citation_format(paragraph):
         return True, None, 5
     else:
-        error_message = "Every 1-2 sentences should have citations: 'text... [x].'"
+        # error_message = "Every 1-2 sentences should have citations: 'text... [x].'"
+        error_message = "Make sure every 1-2 sentences has citations. If any 1-2 sentences lack citations, add them in 'text... [x].' format."
         return False, error_message, 0
 
 
@@ -83,10 +71,13 @@ class CheckCitationFaithfulness(dspy.Signature):
 
 def citation_faithfulness(pred, **kwargs):
     paragraph, context = pred.paragraph, kwargs['context']
+    # import pdb; pdb.set_trace()
     citation_dict = extract_text_by_citation(paragraph)
+    # print(paragraph)
+    # print(citation_dict)
 
     if not citation_dict:
-        return False, None
+        return False, None, 0
     context_dict = {str(i): context[i].split(' | ')[1] for i in range(len(context))}
     faithfulness_results = []
     unfaithful_citations = []
@@ -105,15 +96,19 @@ def citation_faithfulness(pred, **kwargs):
             except ValueError as e:
                 faithfulness_results.append(False)
                 unfaithful_citations.append({'paragraph': paragraph, 'text': text, 'error': str(e)})
-    final_faithfulness = all(faithfulness_results)
+    final_faithfulness = all(faithfulness_results)  #TODO: change this to a percentage, not all
     if not faithfulness_results:
-        return False, None
-    return final_faithfulness, unfaithful_citations
+        return False, None, 0
+    
+    
+    return final_faithfulness, unfaithful_citations, 5 * sum(faithfulness_results) / len(faithfulness_results)
 
 
 def assert_faithful(pred, **kwargs):
     assertion_msg = []
-    _, unfaithful_outputs = citation_faithfulness(pred, **kwargs)
+    final_faithfulness, unfaithful_outputs, score = citation_faithfulness(pred, **kwargs)
+    # print(final_faithfulness, unfaithful_outputs, score)
+    # import pdb; pdb.set_trace()
     
 
     if unfaithful_outputs:
@@ -122,14 +117,10 @@ def assert_faithful(pred, **kwargs):
             if unfaithful_pairs == 0:
                 assertion_msg.append(f"Make sure your output is based on the following context: '{context}'.")
     
+    # score = 5 * len(unfaithful_outputs) / n
     if not assertion_msg:
-        return True, None, 5
-    return False, " \n".join(assertion_msg), 0
-
-        
-dataset = HotPotQA(train_seed=1, train_size=300, eval_seed=2023, dev_size=300, test_size=0, keep_details=True)
-trainset = [x.with_inputs('question') for x in dataset.train]
-devset = [x.with_inputs('question') for x in dataset.dev]
+        return True, None, score
+    return False, " \n".join(assertion_msg), score
 
 
 
@@ -147,23 +138,27 @@ class GenerateCitedParagraph(dspy.Signature):
 
 
 class LongFormQAWithAssertions(dspy.Module): 
-    def __init__(self, passages_per_hop=3):
+    def __init__(self, passages_per_hop=3, max_hops=2):
         self.retrieve = dspy.Retrieve(k=passages_per_hop)
-        self.generate_query = dspy.ChainOfThought("context: list[str], question: str -> query: str")
-        self.generate_cited_paragraph = dspy.ChainOfThought("context: list[str], question: str -> paragraph: str")
-
+        # self.generate_query = dspy.ChainOfThought("context: list[str], question: str -> query: str")
+        self.generate_query = [dspy.ChainOfThought(GenerateSearchQuery) for _ in range(max_hops)]
+        # self.generate_cited_paragraph = dspy.ChainOfThought("context: list[str], question: str -> paragraph: str")
+        self.generate_cited_paragraph = dspy.ChainOfThought(GenerateCitedParagraph)
         self.assertion = AssertionChain(self.generate_cited_paragraph, max_retries=8)
         self.assertion.add_assertion(assert_citations)
         self.assertion.add_assertion(assert_faithful)
+        self.max_hops = max_hops
 
         super().__init__()
     
     def forward(self, question):
         context = []
         
-        for hop in range(2):
-            query = self.generate_query(context=context, question=question).query
-            context += self.retrieve(query).passages
+        for hop in range(self.max_hops):
+            query = self.generate_query[hop](context=context, question=question).query
+            # context += self.retrieve(query).passages
+            passages = self.retrieve(query).passages
+            context = deduplicate(context + passages)
         
         with dspy.context(trace=[]):
             pred = self.assertion(context=context, question=question)
@@ -174,8 +169,47 @@ class LongFormQAWithAssertions(dspy.Module):
 
 
 
+
+
+port = 7453
+local_lm_name = "Qwen/Qwen3-8B"
+local_lm = dspy.LM(
+    model=f"openai/arbor:{local_lm_name}",
+    provider=ArborProvider(),
+    temperature=0.7,
+    api_base=f"http://localhost:{port}/v1/",
+    api_key="arbor",
+    cache=False
+)
+
+dspy.configure(lm=local_lm)
+dspy.settings.configure(rm=dspy.ColBERTv2(url='http://20.102.90.50:2017/wiki17_abstracts'))
+
+dataset = HotPotQA(train_seed=1, train_size=300, eval_seed=2023, dev_size=300, test_size=0, keep_details=True)
+trainset = [x.with_inputs('question') for x in dataset.train]
+devset = [x.with_inputs('question') for x in dataset.dev]
+
+current_model = local_lm_name
+initialize_response = initialize_grpo(model=current_model)
+
+
 prog = LongFormQAWithAssertions()
-for example in trainset:
-    a = prog(question=example.question)
+for i in range(len(trainset)):
+    example = trainset[i]
+    batch = prog(question=example.question)
     # print(a)
+    step_response = run_grpo_step(model_name=current_model, batch=batch)
+    current_model = step_response.json()["current_model"]
+
+    if i == 10:
+        checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
+        last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
+
+    if i == 20:
+        break
+        
     break
+
+terminate_response = terminate_grpo()
+
+# reference: https://github.com/stanfordnlp/dspy/blob/99d84558cb527880cb21c748f5f27172a0aa8169/examples/longformqa/longformqa_assertions.ipynb

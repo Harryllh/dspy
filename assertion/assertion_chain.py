@@ -60,6 +60,7 @@ class AssertionChain:
                 combined = " ".join(retry_prompts).strip()
                 chain.predictors()[0].signature.instructions = original_sig + ' ' + combined  #Adding assertion msg as part of instructions
             
+            # import pdb; pdb.set_trace()
             pred = chain(**kwargs)
 
             scores: List[int] = []
@@ -67,7 +68,7 @@ class AssertionChain:
             for fn in self.assertions:
                 with dspy.context(trace=[]):
                     passed, prompt, score = fn(pred, **kwargs)
-                    print(prompt, passed)
+                    print(prompt, passed, score)
                 scores.append(score)
                 if not passed and prompt:
                     retry_prompts.append(prompt)
