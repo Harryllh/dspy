@@ -4,7 +4,7 @@ import re
 import nltk
 # nltk.download('punkt')
 # nltk.download('punkt_tab')
-
+from tqdm import tqdm
 from dspy.datasets import HotPotQA
 from typing import Callable, List, Tuple, Any
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -49,7 +49,7 @@ class LongFormQAWithAssertions(dspy.Module):
         
         for hop in range(self.max_hops):
             query = self.generate_query[hop](context=context, question=question).query
-            print("query", query)
+            # print("query", query)
             # context += self.retrieve(query).passages
             passages = self.retrieve(query).passages
             context = deduplicate(context + passages)
@@ -64,6 +64,9 @@ class LongFormQAWithAssertions(dspy.Module):
     
     def get_trace(self):
         return self.generate_cited_paragraph_assertion.get_trace()
+    
+    def reset(self):
+        self.generate_cited_paragraph_assertion.reset()
 
 
 # TODO: make reward assignment configurable. add final reward. make this a tree and we can write to some documents for each module.
@@ -93,22 +96,26 @@ devset = [x.with_inputs('question') for x in dataset.dev]
 prog = LongFormQAWithAssertions()
 
 with open("longformQAbatches.jsonl", "w", encoding="utf-8") as f:
-    for i in range(len(trainset)):
+    for i in tqdm(range(len(trainset))):
         example = trainset[i]
-        # for retry in range(3):
-            # try:
-        pred = prog(question=example.question)
-            #     break
-            # except Exception as e:
-            #     print(f"Error processing example {i}: {e}")
+        for n in range(5):
+            for retry in range(3):
+                try:
+                    pred = prog(question=example.question)
+                    break
+                except Exception as e:
+                    print(f"Error processing example {i}: {e}")
 
-        
-        reward = assert_final(example, pred)
-        prog.update_reward(reward)
+            if retry == 2:
+                print(f"Failed to process example {i} after 3 retries.")
+                continue
+            reward = assert_final(example, pred)
+            prog.update_reward(reward)
         batch = prog.get_trace()
-        
-
         f.write(json.dumps(batch, ensure_ascii=False) + "\n")
+
+        prog.reset()
+        import pdb; pdb.set_trace()
 
     # print(a)
 
@@ -131,6 +138,6 @@ with open("longformQAbatches.jsonl", "w", encoding="utf-8") as f:
         
 #     # break
 
-terminate_response = terminate_grpo()
+# terminate_response = terminate_grpo()
 
 # reference: https://github.com/stanfordnlp/dspy/blob/99d84558cb527880cb21c748f5f27172a0aa8169/examples/longformqa/longformqa_assertions.ipynb

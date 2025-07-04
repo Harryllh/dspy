@@ -28,8 +28,9 @@ class AssertionChain:
         self.assertions = assertions or []
         self.max_retries = max_retries
         self.adapter = ChatAdapter()
-        self.trace = []
         self.retry_prompts: List[str] = []
+        self.original_sig = self.base_prog.predictors()[0].signature.instructions
+        self.traces = []
 
     def add_assertion(
         self,
@@ -50,29 +51,28 @@ class AssertionChain:
         """
         Add extra_reward to the "reward" field of each stored trace record.
         """
-        # for trace in self.traces:
+        for trace in self.traces:
             # ensure reward exists and is numeric
-        self.trace['reward'] += extra_reward
+            trace['reward'] += extra_reward
 
     def get_trace(self):
-        return self.trace
+        return self.traces
+    
+    def reset(self):
+        self.base_prog.predictors()[0].signature.instructions = self.original_sig
+        self.traces = []
 
     def __call__(self, **kwargs) -> Tuple[Any, List[int], int, List[Any], List[List[int]], List[int]]:
         best_pred = None
         best_scores: List[int] = []
         best_total = -1
 
-        
-
-        data = []
-        original_sig = self.base_prog.predictors()[0].signature.instructions
-
         # for attempt in range(self.max_retries + 1):
             # if attempt == 0:
             #     chain = self.base_prog
         if self.retry_prompts:
             combined = " ".join(self.retry_prompts).strip()
-            self.base_prog.predictors()[0].signature.instructions = original_sig + ' ' + combined  #Adding assertion msg as part of instructions
+            self.base_prog.predictors()[0].signature.instructions = self.original_sig + ' ' + combined  #Adding assertion msg as part of instructions
         
         # import pdb; pdb.set_trace()
         pred = self.base_prog(**kwargs)
@@ -102,21 +102,29 @@ class AssertionChain:
                             demos=[] # TODO: Add support for demos
                         )['messages']
         
-        self.trace = {       #TODO: consider making this a list
+        # self.traces['messages'] = inp_messages
+        # self.traces['completion'].append({
+        #         "role": all_messages[-1]["role"],
+        #         "content": all_messages[-1]["content"],
+        #     })
+        # self.traces['reward'].append(float(total))
+
+
+        self.traces.append({       #TODO: consider making this a list
             "messages": inp_messages,
             "completion": {
                 "role": all_messages[-1]["role"],
                 "content": all_messages[-1]["content"],
             },
             "reward": float(total),
-        }
+        })
 
-        if total > best_total:
-            best_total = total
-            best_scores = scores
-            best_pred = pred
+        # if total > best_total:
+        #     best_total = total
+        #     best_scores = scores
+        #     best_pred = pred
 
-        return best_pred
+        return pred
     
 
 
