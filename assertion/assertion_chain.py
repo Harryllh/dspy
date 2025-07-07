@@ -75,6 +75,7 @@ class AssertionChain:
             self.base_prog.predictors()[0].signature.instructions = self.original_sig + ' ' + combined  #Adding assertion msg as part of instructions
         
         # import pdb; pdb.set_trace()
+        # print(self.base_prog.predictors()[0].signature.instructions)
         pred = self.base_prog(**kwargs)
 
         scores: List[int] = []

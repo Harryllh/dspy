@@ -126,3 +126,11 @@ def assert_faithful(pred, **kwargs):
         
         return False, " \n".join(assertion_msg), score
     return True, None, score
+
+
+def assert_final(example, pred):
+    if answer_correctness(example, pred):
+        return 5
+    else:
+        return 0
+        
