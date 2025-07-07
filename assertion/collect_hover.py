@@ -14,10 +14,9 @@ from dspy.clients.lm_local_arbor import ArborProvider
 # )
 
 
+lm = dspy.LM(model="openai/gpt-4.1-mini")
 
 dspy.configure(lm=lm)
-
-openai_lm = dspy.LM(model="openai/gpt-4.1-mini")
 
 import ujson
 import bm25s
