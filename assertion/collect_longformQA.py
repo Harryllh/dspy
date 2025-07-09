@@ -15,7 +15,7 @@ from dspy.clients.lm_local_arbor import ArborProvider
 from assertion_chain import AssertionChain
 from checkpoint import initialize_grpo, run_grpo_step, checkpoint, terminate_grpo
 import json
-from utils import GenerateSearchQuery, GenerateCitedParagraph, assert_faithful, assert_citations, assert_final
+from utils import GenerateSearchQuery, GenerateCitedParagraph, assert_faithful, assert_citations, assert_query_length, assert_query_content, assert_final
 from utils import answer_correctness
 
 
@@ -24,11 +24,16 @@ class LongFormQAWithAssertions(dspy.Module):
     def __init__(self, passages_per_hop=3, max_hops=2):
         self.retrieve = dspy.Retrieve(k=passages_per_hop)
         # self.generate_query = dspy.ChainOfThought("context: list[str], question: str -> query: str")
-        self.generate_query = dspy.ChainOfThought(GenerateSearchQuery)
+        self.generate_query_raw = [dspy.ChainOfThought(GenerateSearchQuery) for _ in range(max_hops)]
+
+        self.generate_query_assertion = [AssertionChain(generate_query) for generate_query in self.generate_query_raw]
+        for query_assertion in self.generate_query_assertion:
+            query_assertion.add_assertion(assert_query_length)
+            query_assertion.add_assertion(assert_query_content)
         # self.generate_cited_paragraph = dspy.ChainOfThought("context: list[str], question: str -> paragraph: str")
         self.generate_cited_paragraph = dspy.ChainOfThought(GenerateCitedParagraph)
         # TODO: generate_cited_paragraph_assertion
-        self.generate_cited_paragraph_assertion = AssertionChain(self.generate_cited_paragraph, max_retries=8)
+        self.generate_cited_paragraph_assertion = AssertionChain(self.generate_cited_paragraph)
         self.generate_cited_paragraph_assertion.add_assertion(assert_citations)
         self.generate_cited_paragraph_assertion.add_assertion(assert_faithful)
         self.max_hops = max_hops
@@ -39,8 +44,10 @@ class LongFormQAWithAssertions(dspy.Module):
         context = []
         
         for hop in range(self.max_hops):
-            query = self.generate_query(context=context, question=question).query
-            # print("query", query)
+        # for hop in range(1):
+            # query = self.generate_query(context=context, question=question).query
+            query = self.generate_query_assertion[hop](context=context, question=question).query
+            print("query", query)
             # context += self.retrieve(query).passages
             passages = self.retrieve(query).passages
             context = deduplicate(context + passages)
@@ -51,13 +58,17 @@ class LongFormQAWithAssertions(dspy.Module):
         return pred
     
     def update_reward(self, reward):
+        for query_assertion in self.generate_query_assertion:
+            query_assertion.update_reward(reward)
         self.generate_cited_paragraph_assertion.update_reward(reward)
     
     def get_trace(self):
-        return self.generate_cited_paragraph_assertion.get_trace()
+        return [self.generate_cited_paragraph_assertion.get_trace()] + [query_assertion.get_trace() for query_assertion in self.generate_query_assertion]
     
     def reset(self):
         self.generate_cited_paragraph_assertion.reset()
+        for query_assertion in self.generate_query_assertion:
+            query_assertion.reset()
 
 
 # TODO: make reward assignment configurable. add final reward. make this a tree and we can write to some documents for each module.
@@ -102,9 +113,11 @@ with open("longformQAbatches.jsonl", "w", encoding="utf-8") as f:
                 continue
             reward = assert_final(example, pred)
             prog.update_reward(reward)
-        batch = prog.get_trace()
-        f.write(json.dumps(batch, ensure_ascii=False) + "\n")
-        prog.reset()
+        
+            batch = prog.get_trace()
+            for item in batch:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            prog.reset()
     # print(a)
 
 
