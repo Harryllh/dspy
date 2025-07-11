@@ -42,18 +42,18 @@ local_lm = dspy.LM(
     api_key="arbor",
     cache=False
 )
-local_lm_trained_name = "/scr-ssd/liheng/.arbor/storage/models/grpo:qwen3-8b:CstDN2:20250630_081151"
-local_lm_trained = dspy.LM(
-    model=f"openai/arbor:{local_lm_trained_name}",
-    provider=ArborProvider(),
-    temperature=0.7,
-    api_base=f"http://localhost:{port}/v1/",
-    api_key="arbor",
-    cache=False
-)
+# local_lm_trained_name = "/scr-ssd/liheng/.arbor/storage/models/grpo:qwen3-8b:MvXlSD:20250710_014257/checkpoints/checkpoint_896"
+# local_lm_trained = dspy.LM(
+#     model=f"openai/arbor:{local_lm_trained_name}",
+#     provider=ArborProvider(),
+#     temperature=0.7,
+#     api_base=f"http://localhost:{port}/v1/",
+#     api_key="arbor",
+#     cache=False
+# )
 
-# dspy.configure(lm=local_lm)
-dspy.configure(lm=local_lm_trained)
+dspy.configure(lm=local_lm)
+# dspy.configure(lm=local_lm_trained)
 dspy.settings.configure(rm=dspy.ColBERTv2(url='http://20.102.90.50:2017/wiki17_abstracts'))
 
 dataset = HotPotQA(train_seed=1, train_size=300, eval_seed=2023, dev_size=300, test_size=0, keep_details=True)

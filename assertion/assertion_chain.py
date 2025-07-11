@@ -23,7 +23,7 @@ class AssertionChain:
         base_prog: dspy.ChainOfThought,
         assertions: List[Tuple[Callable[[Any], bool], str, int]] = None,
         is_last_module = False,
-        max_retries: int = 3
+        max_retries: int = 5
     ):
         self.base_prog = base_prog
         self.assertions = assertions or []

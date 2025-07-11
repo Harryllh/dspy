@@ -74,7 +74,9 @@ class LongFormQAWithAssertions(dspy.Module):
 # TODO: make reward assignment configurable. add final reward. make this a tree and we can write to some documents for each module.
 
 port = 7453
-local_lm_name = "Qwen/Qwen2.5-7B"
+# local_lm_name = "Qwen/Qwen2.5-7B"
+# local_lm_name = "Qwen/Qwen3-8B"
+local_lm_name = "/scr-ssd/liheng/.arbor/storage/models/grpo:qwen3-8b:MvXlSD:20250710_014257/checkpoints/checkpoint_896"
 local_lm = dspy.LM(
     model=f"openai/arbor:{local_lm_name}",
     provider=ArborProvider(),
@@ -97,27 +99,27 @@ devset = [x.with_inputs('question') for x in dataset.dev]
 
 prog = LongFormQAWithAssertions()
 
-with open("longformQAbatches.jsonl", "w", encoding="utf-8") as f:
+with open("longformQAbatches_1.jsonl", "w", encoding="utf-8") as f:
     for i in tqdm(range(len(trainset))):
         example = trainset[i]
-        for n in range(5):
-            for retry in range(3):
-                try:
-                    pred = prog(question=example.question)
-                    break
-                except Exception as e:
-                    print(f"Error processing example {i}: {e}")
+        # for n in range(5):
+        for retry in range(3):
+            try:
+                pred = prog(question=example.question)
+                break
+            except Exception as e:
+                print(f"Error processing example {i}: {e}")
 
-            if retry == 2:
-                print(f"Failed to process example {i} after 3 retries.")
-                continue
-            reward = assert_final(example, pred)
-            prog.update_reward(reward)
-        
-            batch = prog.get_trace()
-            for item in batch:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
-            prog.reset()
+        if retry == 2:
+            print(f"Failed to process example {i} after 3 retries.")
+            continue
+        reward = assert_final(example, pred)
+        prog.update_reward(reward)
+    
+        batch = prog.get_trace()
+        for item in batch:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        prog.reset()
     # print(a)
 
 

@@ -12,16 +12,19 @@ def main(filename: str, initial_model: str):
     with open(filename, 'r', encoding='utf-8') as f:
         all_batches = [json.loads(line) for line in f]
 
+    print("Total batches loaded:", len(all_batches))
     current_model = initial_model
 
     # 3) process each batch
     for i, batch in enumerate(all_batches):
         step_resp = run_grpo_step(model_name=current_model, batch=batch)
-        print(f"[Batch {i}] step complete, response:", step_resp.json())
+        # print(f"[Batch {i}] step complete, response:", step_resp.json())
+        print(f"[Batch {i}] step complete")
         current_model = step_resp.json().get("current_model", current_model)
 
         # checkpoint at batch 10
         if i == 10 or i == len(all_batches) - 1:
+            # import pdb; pdb.set_trace()
             cp_resp = checkpoint(checkpoint_name=f"checkpoint_{i}")
             last_cp = cp_resp.json().get("last_checkpoint")
             print(f"Checkpoint created: {last_cp}")
