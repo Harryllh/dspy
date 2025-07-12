@@ -23,9 +23,18 @@ class CheckCitationFaithfulness(dspy.Signature):
     faithfulness: bool = dspy.OutputField(desc="boolean indicating if text is faithful to context")
 
 class CheckQueryContent(dspy.Signature):
-    """Determine if this query is valid and if it's only about one specific topic without combining information."""
+    """
+    Evaluate this search query and return your verdict plus a brief justification:
+    1. Topicality: Does it ask about exactly one factual subject, without merging multiple topics?
+    2. Style: Is it phrased as a concise keyword/headline (no full-sentence questions like “Who is…?”, no filler words)?
+
+    For example:
+    Valid - “quantum entanglement experiments”: single topic, 3 words
+    Invalid - “symptoms of flu and best Italian restaurants”: merges two topics
+    """
     query = dspy.InputField(desc="search query")
     validity: bool = dspy.OutputField(desc="boolean indicating if the query is valid")
+    suggestion: str = dspy.OutputField(desc="one-sentence suggestion to improve the query without adding extra information beyond the query itself, if any")
 
 def answer_correctness(example, pred, trace=None):
     assert hasattr(example, 'answer'), "Example does not have 'answer'."
@@ -37,7 +46,6 @@ def answer_correctness(example, pred, trace=None):
     else:
         raise ValueError("'example.answer' is not string or list.")
     return 1 if any(normalize_text(answer) in normalized_context for answer in gold_answers) else 0
-
 
 
 def correct_citation_format(paragraph):
@@ -66,7 +74,7 @@ def has_citations(paragraph):
 def assert_citations(pred, **kwargs):
     paragraph = pred.paragraph
     if has_citations(paragraph) and correct_citation_format(paragraph):
-        return True, None, 5
+        return True, None, 3
     else:
         # error_message = "Every 1-2 sentences should have citations: 'text... [x].'"
         error_message = "Make sure every 1-2 sentences has citations. If any 1-2 sentences lack citations, add them in 'text... [x].' format."
@@ -82,7 +90,6 @@ def extract_text_by_citation(paragraph):
         citation_num = re.search(r'\[(\d+)\]\.', citation).group(1)
         citation_dict.setdefault(str(int(citation_num) - 1), []).append(part)
     return citation_dict
-
 
 
 def citation_faithfulness(pred, **kwargs):
@@ -129,8 +136,8 @@ def assert_faithful(pred, **kwargs):
         for _, context in unfaithful_pairs:
             assertion_msg.append(f"Make sure your output is based on the following context: '{context}'.")
         
-        return False, "Make sure your output is based on the context provided", score
-        # return False, " \n".join(assertion_msg), score
+        # return False, "Make sure your output is based on the context provided", score
+        return False, " \n".join(assertion_msg), score
     return True, None, score
 
 def assert_query_length(pred, **kwargs):
@@ -141,17 +148,23 @@ def assert_query_length(pred, **kwargs):
 def assert_query_content(pred, **kwargs):
     check_unique_content = dspy.ChainOfThought(CheckQueryContent)
     with dspy.context(lm=dspy.LM("openai/gpt-4.1-mini")):
-        valid = check_unique_content(query=pred.query).validity
+        result = check_unique_content(query=pred.query)
+        valid = result.validity
+        suggestion = result.suggestion
     
+    print("original query:", pred.query)
+    print("suggestion: ", suggestion)
+    print("valid:", valid)
     if not valid:
-        return False, "Make sure the query is about a single topic without combining information.", 0
+        # return False, "Make sure the query is about a single topic without combining information.", 0
+        return False, suggestion, 0
     return True, None, 5
 
 
 
 def assert_final(example, pred):
     if answer_correctness(example, pred):
-        return 5
+        return 10
     else:
         return 0
         

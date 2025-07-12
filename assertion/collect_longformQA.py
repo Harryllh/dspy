@@ -26,16 +26,14 @@ class LongFormQAWithAssertions(dspy.Module):
         # self.generate_query = dspy.ChainOfThought("context: list[str], question: str -> query: str")
         self.generate_query_raw = [dspy.ChainOfThought(GenerateSearchQuery) for _ in range(max_hops)]
 
-        self.generate_query_assertion = [AssertionChain(generate_query) for generate_query in self.generate_query_raw]
+        self.generate_query_assertion = [AssertionChain(generate_query, is_last_module=False) for generate_query in self.generate_query_raw]
         for query_assertion in self.generate_query_assertion:
-            query_assertion.add_assertion(assert_query_length)
-            query_assertion.add_assertion(assert_query_content)
-        # self.generate_cited_paragraph = dspy.ChainOfThought("context: list[str], question: str -> paragraph: str")
+            query_assertion.add_assertion(assert_query_content, 5)
+            
         self.generate_cited_paragraph = dspy.ChainOfThought(GenerateCitedParagraph)
-        # TODO: generate_cited_paragraph_assertion
-        self.generate_cited_paragraph_assertion = AssertionChain(self.generate_cited_paragraph)
-        self.generate_cited_paragraph_assertion.add_assertion(assert_citations)
-        self.generate_cited_paragraph_assertion.add_assertion(assert_faithful)
+        self.generate_cited_paragraph_assertion = AssertionChain(self.generate_cited_paragraph, is_last_module=True)
+        self.generate_cited_paragraph_assertion.add_assertion(assert_citations, 3)
+        self.generate_cited_paragraph_assertion.add_assertion(assert_faithful, 5)  # Make sure the score matches what's defined in the assertion function
         self.max_hops = max_hops
 
         super().__init__()
@@ -47,7 +45,6 @@ class LongFormQAWithAssertions(dspy.Module):
         # for hop in range(1):
             # query = self.generate_query(context=context, question=question).query
             query = self.generate_query_assertion[hop](context=context, question=question).query
-            print("query", query)
             # context += self.retrieve(query).passages
             passages = self.retrieve(query).passages
             context = deduplicate(context + passages)

@@ -38,12 +38,13 @@ class AssertionChain:
             "reward": []
         }
         self.archived_traces = None
-        
+        self.total_score = 0
         self.is_last_module = is_last_module
 
     def add_assertion(
         self,
         assertion_fn,
+        score
     ):
         """
         Add another assertion module.
@@ -51,6 +52,7 @@ class AssertionChain:
         :param assertion_fn:   takes chain output, returns (passed, retry_prompt, score)
         """
         self.assertions.append(assertion_fn)
+        self.total_score += score
     
     def update_reward(
         self,
@@ -96,6 +98,7 @@ class AssertionChain:
                             )
         self.traces['messages'] = inp_messages
 
+        print(kwargs)
         for attempt in range(self.max_retries + 1):
             # if attempt == 0:
             #     chain = self.base_prog
@@ -131,8 +134,9 @@ class AssertionChain:
                 })
             self.traces['reward'].append(float(total))
 
-            # check if this trace has reached the max possible score
-            if total == len(self.assertions) * 5:
+            # check if this trace has reached the max possible score and we have at least 2 groups
+            print("total:", total, "all total: ", self.total_score)
+            if total == self.total_score and attempt >= 2:
                 break
 
         if total > best_total:
