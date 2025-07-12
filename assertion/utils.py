@@ -20,7 +20,12 @@ class CheckCitationFaithfulness(dspy.Signature):
     """Verify that the text is based on the provided context."""
     context = dspy.InputField(desc="may contain relevant facts")
     text = dspy.InputField(desc="between 1 to 2 sentences")
-    faithfulness = dspy.OutputField(desc="boolean indicating if text is faithful to context")
+    faithfulness: bool = dspy.OutputField(desc="boolean indicating if text is faithful to context")
+
+class CheckQueryContent(dspy.Signature):
+    """Determine if this query is valid and if it's only about one specific topic without combining information."""
+    query = dspy.InputField(desc="search query")
+    validity: bool = dspy.OutputField(desc="boolean indicating if the query is valid")
 
 def answer_correctness(example, pred, trace=None):
     assert hasattr(example, 'answer'), "Example does not have 'answer'."
@@ -90,14 +95,16 @@ def citation_faithfulness(pred, **kwargs):
     faithfulness_results = []
     unfaithful_citations = []
     check_citation_faithfulness = dspy.ChainOfThought(CheckCitationFaithfulness)
+    
     for citation_num, texts in citation_dict.items():
         if citation_num not in context_dict:
             continue
         current_context = context_dict[citation_num]
         for text in texts:
             try:
-                result = check_citation_faithfulness(context=current_context, text=text)
-                is_faithful = result.faithfulness.lower() == 'true'
+                with dspy.context(lm=dspy.LM("openai/gpt-4.1-mini")):
+                    result = check_citation_faithfulness(context=current_context, text=text)
+                is_faithful = result.faithfulness  #.lower() == 'true'
                 faithfulness_results.append(is_faithful)
                 if not is_faithful:
                     unfaithful_citations.append({'paragraph': paragraph, 'text': text, 'context': current_context})
@@ -105,6 +112,7 @@ def citation_faithfulness(pred, **kwargs):
                 faithfulness_results.append(False)
                 unfaithful_citations.append({'paragraph': paragraph, 'text': text, 'error': str(e)})
     final_faithfulness = all(faithfulness_results)  #TODO: change this to a percentage, not all
+
     if not faithfulness_results:
         return False, None, 0
     
@@ -115,17 +123,30 @@ def citation_faithfulness(pred, **kwargs):
 def assert_faithful(pred, **kwargs):
     assertion_msg = []
     final_faithfulness, unfaithful_outputs, score = citation_faithfulness(pred, **kwargs)
-    # print(final_faithfulness, unfaithful_outputs, score)
-    # import pdb; pdb.set_trace()
-    
 
     if unfaithful_outputs:
         unfaithful_pairs = [(output['text'], output['context']) for output in unfaithful_outputs]
         for _, context in unfaithful_pairs:
             assertion_msg.append(f"Make sure your output is based on the following context: '{context}'.")
         
-        return False, " \n".join(assertion_msg), score
+        return False, "Make sure your output is based on the context provided", score
+        # return False, " \n".join(assertion_msg), score
     return True, None, score
+
+def assert_query_length(pred, **kwargs):
+    if len(pred.query) >= 50:
+        return False, "Make sure the query is within 50 characters long", 0
+    return True, None, 5
+
+def assert_query_content(pred, **kwargs):
+    check_unique_content = dspy.ChainOfThought(CheckQueryContent)
+    with dspy.context(lm=dspy.LM("openai/gpt-4.1-mini")):
+        valid = check_unique_content(query=pred.query).validity
+    
+    if not valid:
+        return False, "Make sure the query is about a single topic without combining information.", 0
+    return True, None, 5
+
 
 
 def assert_final(example, pred):
