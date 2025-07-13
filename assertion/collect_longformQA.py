@@ -40,11 +40,13 @@ class LongFormQAWithAssertions(dspy.Module):
     
     def forward(self, question):
         context = []
-        
+        queries = []
+
         for hop in range(self.max_hops):
         # for hop in range(1):
             # query = self.generate_query(context=context, question=question).query
-            query = self.generate_query_assertion[hop](context=context, question=question).query
+            query = self.generate_query_assertion[hop](context=context, question=question, existing_queries=queries).query
+            queries.append(query)
             # context += self.retrieve(query).passages
             passages = self.retrieve(query).passages
             context = deduplicate(context + passages)
@@ -72,8 +74,8 @@ class LongFormQAWithAssertions(dspy.Module):
 
 port = 7453
 # local_lm_name = "Qwen/Qwen2.5-7B"
-# local_lm_name = "Qwen/Qwen3-8B"
-local_lm_name = "/scr-ssd/liheng/.arbor/storage/models/grpo:qwen3-8b:MvXlSD:20250710_014257/checkpoints/checkpoint_896"
+local_lm_name = "Qwen/Qwen3-8B"
+# local_lm_name = "/scr-ssd/liheng/.arbor/storage/models/grpo:qwen3-8b:MvXlSD:20250710_014257/checkpoints/checkpoint_896"
 local_lm = dspy.LM(
     model=f"openai/arbor:{local_lm_name}",
     provider=ArborProvider(),
@@ -96,7 +98,7 @@ devset = [x.with_inputs('question') for x in dataset.dev]
 
 prog = LongFormQAWithAssertions()
 
-with open("longformQAbatches_1.jsonl", "w", encoding="utf-8") as f:
+with open("longformQAbatches.jsonl", "w", encoding="utf-8") as f:
     for i in tqdm(range(len(trainset))):
         example = trainset[i]
         # for n in range(5):

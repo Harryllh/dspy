@@ -98,7 +98,6 @@ class AssertionChain:
                             )
         self.traces['messages'] = inp_messages
 
-        print(kwargs)
         for attempt in range(self.max_retries + 1):
             # if attempt == 0:
             #     chain = self.base_prog
@@ -113,8 +112,8 @@ class AssertionChain:
             for fn in self.assertions:
                 with dspy.context(trace=[]):
                     passed, prompt, score = fn(pred, **kwargs)
+                    print("assertion msg: ", prompt)
                     # TODO; we don't need "passed"
-                    print(prompt, passed, score)
                 scores.append(score)
                 if prompt and prompt not in self.retry_prompts:
                     self.retry_prompts.append(prompt)
@@ -135,7 +134,7 @@ class AssertionChain:
             self.traces['reward'].append(float(total))
 
             # check if this trace has reached the max possible score and we have at least 2 groups
-            print("total:", total, "all total: ", self.total_score)
+            print(f"total score: {total} out of {self.total_score}", )
             if total == self.total_score and attempt >= 2:
                 break
 
