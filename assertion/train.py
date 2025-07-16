@@ -3,45 +3,75 @@
 import argparse
 import json
 from checkpoint import initialize_grpo, run_grpo_step, checkpoint, terminate_grpo
+from longformQA import LongFormQAWithAssertions
+from utils import assert_final
+import dspy
 
-def main(filename: str, initial_model: str):
-    # 1) initialize
-    init_resp = initialize_grpo(model=initial_model)
+def main(initial_model: str):
 
-    # 2) load all batches
-    with open(filename, 'r', encoding='utf-8') as f:
-        all_batches = [json.loads(line) for line in f]
+    dspy.settings.configure(rm=dspy.ColBERTv2(url='http://20.102.90.50:2017/wiki17_abstracts'))
 
-    print("Total batches loaded:", len(all_batches))
+    dataset = HotPotQA(train_seed=1, train_size=300, eval_seed=2023, dev_size=300, test_size=0, keep_details=True)
+    trainset = [x.with_inputs('question') for x in dataset.train]
+    devset = [x.with_inputs('question') for x in dataset.dev]
+
+    # current_model = local_lm_name
+    # initialize_response = initialize_grpo(model=current_model)
+
+    port = 7453
     current_model = initial_model
 
-    # 3) process each batch
-    for i, batch in enumerate(all_batches):
-        step_resp = run_grpo_step(model_name=current_model, batch=batch)
-        # print(f"[Batch {i}] step complete, response:", step_resp.json())
-        print(f"[Batch {i}] step complete")
-        current_model = step_resp.json().get("current_model", current_model)
+    prog = LongFormQAWithAssertions()
 
-        # checkpoint at batch 10
-        if i == 10 or i == len(all_batches) - 1:
-            # import pdb; pdb.set_trace()
-            cp_resp = checkpoint(checkpoint_name=f"checkpoint_{i}")
-            last_cp = cp_resp.json().get("last_checkpoint")
-            print(f"Checkpoint created: {last_cp}")
+    # with open("longformQAbatches_1.jsonl", "w", encoding="utf-8") as f:
+    for i in tqdm(range(len(trainset))):
+        local_lm = dspy.LM(
+            model=f"openai/arbor:{current_model}",
+            provider=ArborProvider(),
+            temperature=0.7,
+            api_base=f"http://localhost:{port}/v1/",
+            api_key="arbor",
+            cache=False
+        )
+
+        dspy.configure(lm=local_lm)
+
+        example = trainset[i]
+        # for n in range(5):
+        for retry in range(3):
+            try:
+                pred = prog(question=example.question)
+                break
+            except Exception as e:
+                print(f"Error processing example {i}: {e}")
+
+        if retry == 2:
+            print(f"Failed to process example {i} after 3 retries.")
+            continue
+            
+        reward = assert_final(example, pred)
+        prog.update_reward(reward)
+
+        batch = prog.get_trace()
 
 
-    # 4) terminate
-    term_resp = terminate_grpo()
-    print("Termination response:", term_resp.json())
+        step_response = run_grpo_step(model_name=current_model, batch=batch)
+        current_model = step_response.json()["current_model"]
+
+        if i % 10 == 0 or i == len(trainset) - 1:
+            checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
+            last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
+            print(f"Checkpoint created: {last_checkpoint_name}")
+
+        prog.reset()
+
+        if i == 20:
+            break
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a sequence of GRPO steps from a JSONL file."
-    )
-    parser.add_argument(
-        "--filename",
-        help="Path to the input .jsonl file containing GRPO batches",
-        default="longformQAbatches.jsonl"
     )
     parser.add_argument(
         "--model",
@@ -49,4 +79,4 @@ if __name__ == "__main__":
         help="Initial model name to use for GRPO (default: Qwen/Qwen3-8B)"
     )
     args = parser.parse_args()
-    main(args.filename, args.model)
+    main(args.model)

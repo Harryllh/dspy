@@ -23,7 +23,7 @@ class AssertionChain:
         base_prog: dspy.ChainOfThought,
         assertions: List[Tuple[Callable[[Any], bool], str, int]] = None,
         is_last_module = False,
-        max_retries: int = 5
+        max_retries: int = 6
     ):
         self.base_prog = base_prog
         self.assertions = assertions or []
@@ -98,7 +98,7 @@ class AssertionChain:
                             )
         self.traces['messages'] = inp_messages
 
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(self.max_retries):
             # if attempt == 0:
             #     chain = self.base_prog
             if self.retry_prompts:
@@ -134,8 +134,8 @@ class AssertionChain:
             self.traces['reward'].append(float(total))
 
             # check if this trace has reached the max possible score and we have at least 2 groups
-            print(f"total score: {total} out of {self.total_score}", )
-            if total == self.total_score and attempt >= 2:
+            print(f"total score: {total} out of {self.total_score}")
+            if total == self.total_score and attempt == 0:
                 break
 
         if total > best_total:

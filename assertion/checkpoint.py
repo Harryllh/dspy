@@ -1,3 +1,7 @@
+# Assumes that the server is running
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 from datasets import load_dataset
 from openai import OpenAI
@@ -14,7 +18,7 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model, "num_generations": 8, "lora": True, "grpo_flavor": "grpo"}
+    data = {"model": model, "num_generations": 8, "lora": True, "grpo_flavor": "grpo", "gradient_accumulation_steps": 8, "gradient_checkpointing": True, "bf16": True}
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -53,21 +57,44 @@ def main():
             for completion in completions
         ]
 
+    def _single_chat_completion(model, messages, temperature=0.7):
+        """Function to handle a single chat completion request"""
+        response = client.chat.completions.create(
+            model=model, messages=messages, temperature=temperature
+        )
+        choice = response.choices[0]
+        return {"content": choice.message.content, "role": choice.message.role}
+
     dataset = load_dataset("trl-lib/tldr", split="train")
-    current_model = "Qwen/Qwen3-0.6B"
+    current_model = "Qwen/Qwen3-8B"
     initialize_response = initialize_grpo(model=current_model)
     last_checkpoint = None
 
+    tik = time.time()
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
-        response = client.chat.completions.create(
-            model=current_model, messages=input_messages, temperature=0.7, n=8
-        )
-        completions = [
-            {"content": choice.message.content, "role": choice.message.role}
-            for choice in response.choices
-        ]
+
+        # Use ThreadPoolExecutor for concurrent requests
+        completions = []
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            # Submit all 8 requests concurrently
+            future_to_index = {
+                executor.submit(
+                    _single_chat_completion, current_model, input_messages, 0.7
+                ): idx
+                for idx in range(8)
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                try:
+                    completion = future.result()
+                    completions.append(completion)
+                except Exception as exc:
+                    print(f"Request generated an exception: {exc}")
+                    # Add a placeholder for failed requests
+                    completions.append({"content": "", "role": "assistant"})
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
         print(rewards)
 
@@ -76,8 +103,6 @@ def main():
             batch.append(
                 {"messages": input_messages, "completion": completion, "reward": reward}
             )
-
-        import pdb; pdb.set_trace()
         step_response = run_grpo_step(model_name=current_model, batch=batch)
         current_model = step_response.json()["current_model"]
 
@@ -87,7 +112,8 @@ def main():
 
         if i == 20:
             break
-
+    tok = time.time()
+    print(f"Time taken: {tok - tik} seconds")
     terminate_response = terminate_grpo()
     import pdb
 
@@ -99,5 +125,5 @@ def main():
     )
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

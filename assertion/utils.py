@@ -8,6 +8,7 @@ class GenerateSearchQuery(dspy.Signature):
     """Write a simple search query that will help answer a complex question."""
     context = dspy.InputField(desc="may contain relevant facts")
     question = dspy.InputField()
+    existing_queries: list = dspy.InputField(desc="A list of queries already been asked.")
     query = dspy.OutputField()
 
 class GenerateCitedParagraph(dspy.Signature):
@@ -31,6 +32,7 @@ class CheckQueryContent(dspy.Signature):
     For example:
     Valid - “quantum entanglement experiments”: single topic, 3 words
     Invalid - “symptoms of flu and best Italian restaurants”: merges two topics
+    Invalid - "Height of Empire State Building vs Bank of America Tower": merges two topics
     """
     query = dspy.InputField(desc="search query")
     validity: bool = dspy.OutputField(desc="boolean indicating if the query is valid")
@@ -151,10 +153,10 @@ def assert_query_content(pred, **kwargs):
         result = check_unique_content(query=pred.query)
         valid = result.validity
         suggestion = result.suggestion
-    
-    print("original query:", pred.query)
-    print("suggestion: ", suggestion)
-    print("valid:", valid)
+
+    print("query: ", pred.query)
+    # print("suggestion: ", suggestion)
+    print("vlaid: ", valid)
     if not valid:
         # return False, "Make sure the query is about a single topic without combining information.", 0
         return False, suggestion, 0
