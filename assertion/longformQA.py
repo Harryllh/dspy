@@ -1,22 +1,11 @@
 import dspy
-from typing import Literal
-import re
 import nltk
 # nltk.download('punkt')
 # nltk.download('punkt_tab')
-from tqdm import tqdm
-from dspy.datasets import HotPotQA
-from typing import Callable, List, Tuple, Any
-from dspy.adapters.chat_adapter import ChatAdapter
-import os
-from dspy.dsp.utils import deduplicate, normalize_text
+from dspy.dsp.utils import deduplicate
 import dspy
-from dspy.clients.lm_local_arbor import ArborProvider
 from assertion_chain import AssertionChain
-from checkpoint import initialize_grpo, run_grpo_step, checkpoint, terminate_grpo
-import json
-from utils import GenerateSearchQuery, GenerateCitedParagraph, assert_faithful, assert_citations, assert_query_length, assert_query_content, assert_final
-from utils import answer_correctness
+from utils import GenerateSearchQuery, GenerateCitedParagraph, assert_faithful, assert_citations, assert_query_content
 
 
 
