@@ -51,7 +51,9 @@ class LongFormQAWithAssertions(dspy.Module):
         self.generate_cited_paragraph_assertion.update_reward(reward)
     
     def get_trace(self):
-        return [self.generate_cited_paragraph_assertion.get_trace()] + [query_assertion.get_trace() for query_assertion in self.generate_query_assertion]
+        traces = [self.generate_cited_paragraph_assertion.get_trace()] + [query_assertion.get_trace() for query_assertion in self.generate_query_assertion]
+        traces = [trace for trace in traces if trace != []]
+        return traces
     
     def reset(self):
         self.generate_cited_paragraph_assertion.reset()

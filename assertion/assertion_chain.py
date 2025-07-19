@@ -32,11 +32,7 @@ class AssertionChain:
         self.retry_prompts: List[str] = []
         self.original_sig = self.base_prog.predictors()[0].signature
         self.original_inst = self.original_sig.instructions
-        self.traces = {
-            "messages": "",
-            "completion": [],
-            "reward": []
-        }
+        self.traces = []
         self.archived_traces = None
         self.total_score = 0
         self.is_last_module = is_last_module
@@ -61,17 +57,21 @@ class AssertionChain:
         """
         Add extra_reward to the "reward" field of each stored trace record.
         """
-        all_rewards = self.traces['reward']
+        if not self.traces:
+            return
+
+        all_rewards = [t['reward'] for t in self.traces]
         print("before:", all_rewards)
+
         if self.is_last_module:
-            for i in range(len(all_rewards)):
-                all_rewards[i] += extra_reward
+            for t in self.traces:
+                t['reward'] += extra_reward
         else:
             max_reward = max(all_rewards)
             # boost *all* traces tied for that highest reward
-            for i in range(len(all_rewards)):
-                if all_rewards[i] == max_reward:
-                    all_rewards[i] += extra_reward
+            for t in self.traces:
+                if t['reward'] == max_reward:
+                    t['reward'] += extra_reward
         
         print("after:", all_rewards)
 
@@ -80,11 +80,7 @@ class AssertionChain:
     
     def reset(self):
         self.original_sig.instructions = self.original_inst
-        self.traces = {
-            "messages": "",
-            "completion": [],
-            "reward": []
-        }
+        self.traces = []
         self.retry_prompts = []
 
     def __call__(self, **kwargs) -> Tuple[Any, List[int], int, List[Any], List[List[int]], List[int]]:
@@ -96,11 +92,9 @@ class AssertionChain:
                                 inputs=kwargs,
                                 demos=[] # TODO: Add support for demos
                             )
-        self.traces['messages'] = inp_messages
+        
 
         for attempt in range(self.max_retries):
-            # if attempt == 0:
-            #     chain = self.base_prog
             if self.retry_prompts:
                 combined = " ".join(self.retry_prompts).strip()
                 self.original_sig.instructions = self.original_inst + ' ' + combined  #Adding assertion msg as part of instructions
@@ -112,7 +106,7 @@ class AssertionChain:
             for fn in self.assertions:
                 with dspy.context(trace=[]):
                     passed, prompt, score = fn(pred, **kwargs)
-                    print("assertion msg: ", prompt)
+                    # print("assertion msg: ", prompt)
                     # TODO; we don't need "passed"
                 scores.append(score)
                 if prompt and prompt not in self.retry_prompts:
@@ -126,17 +120,22 @@ class AssertionChain:
                                 outputs=pred,
                                 demos=[] # TODO: Add support for demos
                             )['messages']
-            
-            self.traces['completion'].append({
-                    "role": all_messages[-1]["role"],
-                    "content": all_messages[-1]["content"],
-                })
-            self.traces['reward'].append(float(total))
 
-            # check if this trace has reached the max possible score and we have at least 2 groups
-            print(f"total score: {total} out of {self.total_score}")
+            print(f"[attempt {attempt}] total score: {total} out of {self.total_score}")
             if total == self.total_score and attempt == 0:
                 break
+            
+            trace = {
+                'messages': inp_messages,
+                'completion': {
+                    "role": all_messages[-1]["role"],
+                    "content": all_messages[-1]["content"],
+                },
+                'reward': float(total)
+
+            }
+            self.traces.append(trace)
+            
 
         if total > best_total:
             best_total = total

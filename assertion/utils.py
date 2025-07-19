@@ -154,9 +154,6 @@ def assert_query_content(pred, **kwargs):
         valid = result.validity
         suggestion = result.suggestion
 
-    print("query: ", pred.query)
-    # print("suggestion: ", suggestion)
-    print("vlaid: ", valid)
     if not valid:
         # return False, "Make sure the query is about a single topic without combining information.", 0
         return False, suggestion, 0
